@@ -51,9 +51,11 @@ export class AuthService {
 
     const payload = { sub: user.id };
     const access_token = await this.jwtService.signAsync(payload, {
-      expiresIn: '1h',
+      secret : this.configService.get<string>('JWT_ACC_SECRET'),
+      expiresIn: '1m',
     });
     const refresh_token = await this.jwtService.signAsync(payload, {
+      secret : this.configService.get<string>('JWT_REF_SECRET'),
       expiresIn: '7d',
     });
 
@@ -71,4 +73,31 @@ export class AuthService {
     const { user_password, ...result } = user;
     return result;
   }
+
+
+  
+  async verifyRefreshToken(token: string) {
+    try {
+      // Verify the refresh token
+      const user_data = await this.jwtService.verifyAsync(token, {
+        secret: this.configService.get<string>('JWT_REF_SECRET'),
+      });
+      return user_data;
+    } catch (error) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+  }
+  
+  async generateAccessToken(userId: number) {
+    const payload = { sub: userId };
+    const access_token = await this.jwtService.signAsync(payload, {
+      secret: this.configService.get<string>('JWT_ACC_SECRET'),
+      expiresIn: '1h', // Short expiry for access token
+    });
+    return access_token;
+  }
+  
 }
+
+
+

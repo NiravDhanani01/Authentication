@@ -1,8 +1,8 @@
-import { Controller, Post, Body, Res, Get, Req } from '@nestjs/common';
+import { Controller, Post, Body, Res, Get, Req, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CreateAuthDto } from './dto/create-auth.dto';
 import { LoginDto } from './dto/loginDto.dto';
-import { Request, response, Response } from 'express';
+import { request, Request, response, Response } from 'express';
 
 @Controller('auth')
 export class AuthController {
@@ -21,10 +21,36 @@ export class AuthController {
     console.log('log data', login_data);
     const { access_token, refresh_token } =
       await this.authService.login(login_data);
-    response.cookie('access_token', access_token, { httpOnly: true });
-    response.cookie('refresh_token', refresh_token, { httpOnly: true });
+    response.cookie('access_token', access_token, {
+      httpOnly: true,
+    });
+    response.cookie('refresh_token', refresh_token, {
+      httpOnly: true,
+    });
 
-    return { access_token, refresh_token };
+    return { message: 'Logged in successfully' };
+  }
+
+  @Post('refresh-token')
+  async refreshToken(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const refreshToken = request.cookies['refresh_token']; // Get refresh token from cookies
+
+    if (!refreshToken) {
+      throw new UnauthorizedException('No refresh token found');
+    }
+  
+    const user_data = await this.authService.verifyRefreshToken(refreshToken);
+    
+    // Generate a new access token
+    const new_access_token = await this.authService.generateAccessToken(user_data.sub);
+  
+    // Set new access token in the cookie
+    response.cookie('access_token', new_access_token, { httpOnly: true });
+  
+    return { access_token: new_access_token };
   }
 
   @Get('/user')
@@ -38,7 +64,7 @@ export class AuthController {
     response.clearCookie('access_token');
     response.clearCookie('refresh_token');
     return {
-      message: 'success',
+      message: 'Logged out successfully',
     };
   }
 }
