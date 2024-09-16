@@ -7,20 +7,21 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { LoginDto } from './dto/loginDto.dto';
 import { JwtService } from '@nestjs/jwt';
-import { log } from 'console';
+import { Tokens } from './entities/refresh_token.entity';
 
 @Injectable()
 export class AuthService {
   constructor(
     @InjectRepository(Users) private readonly userRepository: Repository<Users>,
+    @InjectRepository(Tokens)
+    private readonly tokenRepository: Repository<Tokens>,
     private configService: ConfigService,
     private jwtService: JwtService,
   ) {}
 
   async create(createAuthDto: CreateAuthDto) {
     const user = new Users();
-    const saltRounds =
-      +this.configService.get<string>('BCRYPT_SALT_ROUNDS') || 10; // Fallback to default if not set
+    const saltRounds = +this.configService.get<string>('BCRYPT_SALT_ROUNDS');
     const hash = await bcrypt.hash(createAuthDto.user_password, saltRounds);
     user.full_name = createAuthDto.full_name;
     user.user_name = createAuthDto.user_name;
@@ -51,13 +52,20 @@ export class AuthService {
 
     const payload = { sub: user.id };
     const access_token = await this.jwtService.signAsync(payload, {
-      secret : this.configService.get<string>('JWT_ACC_SECRET'),
-      expiresIn: '1m',
+      secret: this.configService.get<string>('JWT_ACC_SECRET'),
+      expiresIn: '1min',
     });
+
     const refresh_token = await this.jwtService.signAsync(payload, {
-      secret : this.configService.get<string>('JWT_REF_SECRET'),
+      secret: this.configService.get<string>('JWT_REF_SECRET'),
       expiresIn: '7d',
     });
+
+    const user_token = new Tokens();
+    user_token.user_id = user.id;
+    user_token.refresh_token = refresh_token;
+
+    await this.tokenRepository.save(user_token);
 
     return { access_token, refresh_token };
   }
@@ -74,30 +82,40 @@ export class AuthService {
     return result;
   }
 
-
-  
   async verifyRefreshToken(token: string) {
     try {
-      // Verify the refresh token
       const user_data = await this.jwtService.verifyAsync(token, {
         secret: this.configService.get<string>('JWT_REF_SECRET'),
       });
-      return user_data;
-    } catch (error) {
-      throw new UnauthorizedException('Invalid refresh token');
+
+      const db_token = await this.tokenRepository.findOneBy(user_data.sub);
+      console.log(db_token.refresh_token === token);
+
+      if (db_token.refresh_token === token) {
+        const payload = { sub: user_data.sub };
+        const access_token = this.jwtService.signAsync(payload, {
+          secret: this.configService.get<string>('JWT_ACC_SECRET'),
+          expiresIn: '1h',
+        });
+
+        return access_token;
+      } else {
+        console.log('token not match');
+
+        throw new UnauthorizedException();
+      }
+    } catch (err) {
+      throw new UnauthorizedException('invalid refresh token');
     }
   }
-  
-  async generateAccessToken(userId: number) {
-    const payload = { sub: userId };
-    const access_token = await this.jwtService.signAsync(payload, {
-      secret: this.configService.get<string>('JWT_ACC_SECRET'),
-      expiresIn: '1h', // Short expiry for access token
-    });
-    return access_token;
+
+  async delete_token(cookie) {
+    const user_data = await this.jwtService.verifyAsync(cookie);
+    let id = user_data.sub;
+
+    await this.tokenRepository.delete({ user_id: id });
+    return true;
   }
-  
+
+  async;
 }
-
-
-

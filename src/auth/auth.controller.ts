@@ -1,8 +1,18 @@
-import { Controller, Post, Body, Res, Get, Req, UnauthorizedException } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Res,
+  Get,
+  Req,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CreateAuthDto } from './dto/create-auth.dto';
 import { LoginDto } from './dto/loginDto.dto';
-import { request, Request, response, Response } from 'express';
+import { Request, Response } from 'express';
+import { AuthGuard } from './auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -18,14 +28,15 @@ export class AuthController {
     @Body() login_data: LoginDto,
     @Res({ passthrough: true }) response: Response,
   ) {
-    console.log('log data', login_data);
     const { access_token, refresh_token } =
       await this.authService.login(login_data);
     response.cookie('access_token', access_token, {
       httpOnly: true,
+      secure: true,
     });
     response.cookie('refresh_token', refresh_token, {
       httpOnly: true,
+      secure: true,
     });
 
     return { message: 'Logged in successfully' };
@@ -36,35 +47,50 @@ export class AuthController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const refreshToken = request.cookies['refresh_token']; // Get refresh token from cookies
-
-    if (!refreshToken) {
-      throw new UnauthorizedException('No refresh token found');
+    const refresh_token = await request.cookies['refresh_token'];
+    if (!refresh_token) {
+      throw new UnauthorizedException('Refresh token is missing');
     }
-  
-    const user_data = await this.authService.verifyRefreshToken(refreshToken);
-    
-    // Generate a new access token
-    const new_access_token = await this.authService.generateAccessToken(user_data.sub);
-  
-    // Set new access token in the cookie
-    response.cookie('access_token', new_access_token, { httpOnly: true });
-  
-    return { access_token: new_access_token };
+
+    const user_new_token =
+      await this.authService.verifyRefreshToken(refresh_token);
+
+    response.cookie('access_token', user_new_token, {
+      httpOnly: true,
+      secure: true,
+    });
+
+    return {
+      message: ' New Access Token ',
+    };
   }
 
+  // @UseGuards(AuthGuard)
   @Get('/user')
   getUser(@Req() request: Request) {
     const cookie = request.cookies['access_token'];
+    if (!cookie) {
+      throw new UnauthorizedException('No access token found');
+    }
     return this.authService.getUser(cookie);
   }
 
+  // @UseGuards(AuthGuard)
   @Post('/logout')
-  logout(@Res({ passthrough: true }) response: Response) {
+  logout(@Res({ passthrough: true }) response: Response,@Req() request:Request) {
     response.clearCookie('access_token');
     response.clearCookie('refresh_token');
+    const cookie = request.cookies['access_token'];
+    
+    this.authService.delete_token(cookie);
     return {
       message: 'Logged out successfully',
     };
+  }
+
+  // @UseGuards(AuthGuard)
+  @Get()
+  getHello(): string {
+    return 'hello';
   }
 }
